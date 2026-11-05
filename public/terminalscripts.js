@@ -663,7 +663,7 @@
         // Core Engine: Base64 Encoding & Payload Builder
         // -------------------------------------------------------------
         encodePowerShellCommand: function (commandText) {
-            // Strict UTF-16LE conversion for PowerShell -EncodedCommand
+            // Strict UTF-16LE conversion for PowerShell
             var byteArray = new Uint8Array(commandText.length * 2);
             for (var i = 0; i < commandText.length; i++) {
                 var code = commandText.charCodeAt(i);
@@ -671,11 +671,23 @@
                 byteArray[i * 2 + 1] = (code >> 8) & 0xff; // High byte
             }
             var binaryString = '';
-            for (var j = 0; j < byteArray.byteLength; j++) {
-                binaryString += String.fromCharCode(byteArray[j]);
+            var chunkSize = 8192;
+            for (var j = 0; j < byteArray.byteLength; j += chunkSize) {
+                var chunk = byteArray.subarray(j, j + chunkSize);
+                binaryString += String.fromCharCode.apply(null, chunk);
             }
             var base64 = btoa(binaryString);
-            return 'powershell.exe -NoProfile -EncodedCommand ' + base64;
+
+            // Windows command-line character limits:
+            // CreateProcess limit is 32,767 chars; cmd.exe is 8,191 chars.
+            // When base64 exceeds ~6000 chars, passing powershell.exe -EncodedCommand
+            // crashes with "Имя файла или его расширение имеет слишком большую длину" (NativeCommandFailed).
+            // For large scripts, execute directly in-memory via ScriptBlock to bypass the Win32 CreateProcess limit!
+            if (base64.length > 6000) {
+                return "& ([ScriptBlock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('" + base64 + "'))))";
+            }
+
+            return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + base64;
         },
 
         encodeBashCommand: function (commandText) {
@@ -699,12 +711,17 @@
                     payload = this.encodeBashCommand(rawText);
                 }
             } else {
-                payload = rawText;
+                var targetOS = this.currentOS;
+                if (targetOS === 'windows' || script.targetOS === 'windows') {
+                    payload = rawText.replace(/\r?\n/g, '\r\n');
+                } else {
+                    payload = rawText.replace(/\r?\n/g, '\n');
+                }
             }
 
             if (script.autoExecute) {
                 // In terminal / raw mode emulation, \r simulates the physical Enter keypress
-                payload += '\r';
+                payload += (payload.endsWith('\n') || payload.endsWith('\r')) ? '' : '\r';
             }
 
             return payload;

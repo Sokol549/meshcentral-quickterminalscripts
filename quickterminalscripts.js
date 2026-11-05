@@ -1018,11 +1018,18 @@ var quickterminalscriptsPlugin = function (parent) {
                     byteArray[i * 2 + 1] = (code >> 8) & 0xff;
                 }
                 var binaryString = '';
-                for (var j = 0; j < byteArray.byteLength; j++) {
-                    binaryString += String.fromCharCode(byteArray[j]);
+                var chunkSize = 8192;
+                for (var j = 0; j < byteArray.byteLength; j += chunkSize) {
+                    var chunk = byteArray.subarray(j, j + chunkSize);
+                    binaryString += String.fromCharCode.apply(null, chunk);
                 }
                 var base64 = btoa(binaryString);
-                return 'powershell.exe -NoProfile -EncodedCommand ' + base64;
+
+                if (base64.length > 6000) {
+                    return "& ([ScriptBlock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('" + base64 + "'))))";
+                }
+
+                return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + base64;
             },
 
             encodeBashCommand: function (commandText) {
@@ -1043,11 +1050,16 @@ var quickterminalscriptsPlugin = function (parent) {
                         payload = this.encodeBashCommand(rawText);
                     }
                 } else {
-                    payload = rawText;
+                    var targetOS = this.currentOS;
+                    if (targetOS === 'windows' || script.targetOS === 'windows') {
+                        payload = rawText.replace(/\r?\n/g, '\r\n');
+                    } else {
+                        payload = rawText.replace(/\r?\n/g, '\n');
+                    }
                 }
 
                 if (script.autoExecute) {
-                    payload += '\r';
+                    payload += (payload.endsWith('\n') || payload.endsWith('\r')) ? '' : '\r';
                 }
 
                 return payload;

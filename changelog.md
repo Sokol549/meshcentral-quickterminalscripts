@@ -2,6 +2,13 @@
 
 All notable changes to the **QuickTerminalScripts** plugin will be documented in this file.
 
+## [1.0.5] - 2026-11-05
+### Fixed
+- Fixed `NativeCommandFailed` / `Имя файла или его расширение имеет слишком большую длину` (Win32 `ERROR_FILENAME_EXCED_RANGE`) on long scripts when using Base64:
+  - If Base64 string exceeds 6,000 characters (hitting Windows `CreateProcess` 32,767-character command line limit), the plugin now invokes the code in-memory via `& ([ScriptBlock]::Create(...))` without spawning an external `powershell.exe` process.
+  - Chunked Uint8Array to binary string conversion for high-performance encoding of scripts > 100 KB.
+  - Normalized CRLF line endings for raw multiline script execution when Base64 wrapper is disabled.
+
 ## [1.0.4] - 2026-11-05
 ### Fixed
 - Fixed script synchronization across nodes, new browser tabs, and page reloads by implementing WebSocket polling retry in `loadScripts()`.
