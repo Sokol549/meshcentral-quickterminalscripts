@@ -41,6 +41,11 @@
             setInterval(function () {
                 QTS.checkAndMount();
             }, 1000);
+
+            // Periodic background sync with server to pick up scripts added by other admins
+            setInterval(function () {
+                QTS.loadScripts();
+            }, 10000);
         },
 
         ensureStylesLoaded: function () {
@@ -130,9 +135,8 @@
         // -------------------------------------------------------------
         // Data Loading & Synchronization
         // -------------------------------------------------------------
-        loadScripts: function (retries) {
+        loadScripts: function () {
             var self = this;
-            retries = retries || 0;
 
             // 1. Instant cache restoration from localStorage for immediate UI availability
             if (self.scripts.length === 0) {
@@ -147,38 +151,60 @@
                 } catch (e) {}
             }
 
-            // 2. Query via WebSocket if connection is ready
-            var isWsReady = false;
-            try {
-                if (window.meshserver && window.meshserver.ws && window.meshserver.ws.readyState === 1) {
-                    isWsReady = true;
-                } else if (window.meshserver && typeof window.meshserver.send === 'function' && (window.userinfo || window.currentUser)) {
-                    isWsReady = true;
+            // 2. Query via WebSocket from server
+            function sendWsGet() {
+                if (window.meshserver && typeof window.meshserver.send === 'function') {
+                    try {
+                        window.meshserver.send({
+                            action: 'plugin',
+                            plugin: 'quickterminalscripts',
+                            pluginaction: 'getScripts'
+                        });
+                        return true;
+                    } catch (e) {}
                 }
-            } catch (e) {}
+                return false;
+            }
 
-            if (isWsReady) {
-                try {
-                    window.meshserver.send({
-                        action: 'plugin',
-                        plugin: 'quickterminalscripts',
-                        pluginaction: 'getScripts'
-                    });
-                } catch (e) {}
-            } else if (retries < 40) {
-                // Keep polling until WebSocket handshake completes
-                setTimeout(function () {
-                    self.loadScripts(retries + 1);
+            var ms = window.meshserver;
+            var isWsReady = ms && (
+                (ms.socket && ms.socket.readyState === 1) ||
+                (ms.ws && ms.ws.readyState === 1) ||
+                (ms.connectstate === 1) ||
+                (typeof window.userinfo !== 'undefined' && window.userinfo !== null)
+            );
+
+            if (isWsReady && sendWsGet()) {
+                // Sent successfully
+            } else {
+                var retryCount = 0;
+                var pollTimer = setInterval(function () {
+                    retryCount++;
+                    var ms2 = window.meshserver;
+                    var readyNow = ms2 && (
+                        (ms2.socket && ms2.socket.readyState === 1) ||
+                        (ms2.ws && ms2.ws.readyState === 1) ||
+                        (ms2.connectstate === 1) ||
+                        (typeof window.userinfo !== 'undefined' && window.userinfo !== null)
+                    );
+                    if (readyNow && sendWsGet()) {
+                        clearInterval(pollTimer);
+                    } else if (retryCount > 40) {
+                        clearInterval(pollTimer);
+                    }
                 }, 250);
             }
 
-            // 3. Redundant HTTP REST fallback
-            fetch('/plugin/quickterminalscripts/api/scripts', { credentials: 'same-origin' })
+            // 3. Redundant HTTP REST fallback with cache busting
+            fetch('/plugin/quickterminalscripts/api/scripts?_=' + Date.now(), { 
+                cache: 'no-store',
+                credentials: 'same-origin' 
+            })
                 .then(function (res) {
                     if (res.ok) return res.json();
                 })
                 .then(function (data) {
-                    if (Array.isArray(data) && data.length > 0) {
+                    if (Array.isArray(data)) {
                         self.setScripts(data);
                     }
                 })
@@ -195,6 +221,9 @@
             }
             this.updateFilteredScripts();
             this.renderDropdown();
+            if (this.modalOpen) {
+                this.renderScriptListView();
+            }
             // If currently selected script was modified or deleted, update selection
             if (this.selectedScript) {
                 var found = null;
@@ -281,22 +310,11 @@
             this.updateFilteredScripts();
             this.renderDropdown();
             this.checkAndMount();
-            if (this.scripts.length === 0) {
-                this.loadScripts();
-            }
+            this.loadScripts();
         },
 
         checkAndMount: function () {
             var p12 = document.getElementById('p12');
-            var isTerminalVisible = p12 && (p12.style.display !== 'none');
-            if (isTerminalVisible) {
-                this.mountToolbar();
-            }
-            this.updateAdminVisibility();
-            if (this.scripts.length === 0) {
-                this.loadScripts();
-            }
-        },
             var isTerminalVisible = p12 && (p12.style.display !== 'none');
             if (isTerminalVisible) {
                 this.mountToolbar();
@@ -553,7 +571,6 @@
                 })(j);
             }
         },
-        },
 
         handleInputKeydown: function (e) {
             if (!this.dropdownOpen) {
@@ -608,9 +625,7 @@
         },
 
         openDropdown: function () {
-            if (this.scripts.length === 0) {
-                this.loadScripts();
-            }
+            this.loadScripts();
             var list = document.getElementById('qts-dropdown-list');
             if (list) {
                 list.style.display = 'block';
@@ -793,9 +808,7 @@
                 this.showToast('Доступ запрещен: требуются права администратора.', 'error');
                 return;
             }
-            if (this.scripts.length === 0) {
-                this.loadScripts();
-            }
+            this.loadScripts();
 
             this.editingScriptId = null;
             this.modalSearchQuery = '';

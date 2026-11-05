@@ -220,6 +220,9 @@ var quickterminalscriptsPlugin = function (parent) {
             try {
                 var scripts = readScripts();
                 res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                res.setHeader('Pragma', 'no-cache');
+                res.setHeader('Expires', '0');
                 res.status(200).json(scripts);
             } catch (e) {
                 res.status(500).json({ error: 'Failed to read scripts: ' + e.message });
@@ -250,6 +253,13 @@ var quickterminalscriptsPlugin = function (parent) {
 
             try {
                 var saved = saveScripts(body);
+                // Broadcast updated scripts to all active user sessions
+                broadcastToAllUsers({
+                    action: 'plugin',
+                    plugin: 'quickterminalscripts',
+                    method: 'onScriptsLoaded',
+                    scripts: saved
+                });
                 res.setHeader('Content-Type', 'application/json; charset=utf-8');
                 res.status(200).json({ success: true, count: saved.length });
             } catch (e) {
@@ -320,6 +330,55 @@ var quickterminalscriptsPlugin = function (parent) {
         }
     }
 
+    function broadcastToAllUsers(dataObj) {
+        try {
+            var serverCore = obj.meshServer || (obj.parent && obj.parent.parent) || obj.parent;
+            if (!serverCore) return;
+
+            var payload = (typeof dataObj === 'string') ? dataObj : JSON.stringify(dataObj);
+
+            // 1. Broadcast to wssessions2 (standard MeshCentral session mapping)
+            var wss2 = (serverCore.webserver && serverCore.webserver.wssessions2) || null;
+            if (wss2) {
+                for (var sid in wss2) {
+                    try {
+                        var s = wss2[sid];
+                        if (!s) continue;
+                        if (typeof s.send === 'function') {
+                            s.send(payload);
+                        } else if (s.ws && typeof s.ws.send === 'function') {
+                            s.ws.send(payload);
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            // 2. Broadcast to wssessions (array or map in some MeshCentral versions)
+            var wss = (serverCore.webserver && serverCore.webserver.wssessions) || null;
+            if (wss) {
+                if (Array.isArray(wss)) {
+                    for (var i = 0; i < wss.length; i++) {
+                        try {
+                            if (wss[i] && typeof wss[i].send === 'function') {
+                                wss[i].send(payload);
+                            }
+                        } catch (e) {}
+                    }
+                } else if (typeof wss === 'object') {
+                    for (var k in wss) {
+                        try {
+                            if (wss[k] && typeof wss[k].send === 'function') {
+                                wss[k].send(payload);
+                            }
+                        } catch (e) {}
+                    }
+                }
+            }
+        } catch (ex) {
+            console.warn('[QuickTerminalScripts] Broadcast error:', ex.message);
+        }
+    }
+
     // -----------------------------------------------------------------
     // WebSocket Plugin Message Handler
     // -----------------------------------------------------------------
@@ -365,6 +424,13 @@ var quickterminalscriptsPlugin = function (parent) {
                 try {
                     var toSave = command.scripts;
                     var result = saveScripts(toSave);
+                    // Broadcast fresh scripts to all connected users
+                    broadcastToAllUsers({
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onScriptsLoaded',
+                        scripts: result
+                    });
                     sendToUser(myUser, {
                         action: 'plugin',
                         plugin: 'quickterminalscripts',
@@ -513,6 +579,11 @@ var quickterminalscriptsPlugin = function (parent) {
                 setInterval(function () {
                     self.checkAndMount();
                 }, 1000);
+
+                // Periodic background sync with server to pick up scripts added by other admins
+                setInterval(function () {
+                    self.loadScripts();
+                }, 10000);
             },
 
             isUserAdmin: function () {
@@ -579,11 +650,10 @@ var quickterminalscriptsPlugin = function (parent) {
                 return 'all';
             },
 
-            loadScripts: function (retries) {
+            loadScripts: function () {
                 var self = this;
-                retries = retries || 0;
 
-                // 1. Instant cache restoration from localStorage
+                // 1. Instant cache restoration from localStorage for immediate UI availability
                 if (self.scripts.length === 0) {
                     try {
                         var cached = localStorage.getItem('qts_scripts_cache');
@@ -596,34 +666,57 @@ var quickterminalscriptsPlugin = function (parent) {
                     } catch (e) {}
                 }
 
-                // 2. Query via WebSocket if ready
-                var isWsReady = false;
-                try {
-                    if (window.meshserver && window.meshserver.ws && window.meshserver.ws.readyState === 1) {
-                        isWsReady = true;
-                    } else if (window.meshserver && typeof window.meshserver.send === 'function' && (window.userinfo || window.currentUser)) {
-                        isWsReady = true;
+                // 2. Query via WebSocket from server
+                function sendWsGet() {
+                    if (window.meshserver && typeof window.meshserver.send === 'function') {
+                        try {
+                            window.meshserver.send({
+                                action: 'plugin',
+                                plugin: 'quickterminalscripts',
+                                pluginaction: 'getScripts'
+                            });
+                            return true;
+                        } catch (e) {}
                     }
-                } catch (e) {}
+                    return false;
+                }
 
-                if (isWsReady) {
-                    try {
-                        window.meshserver.send({
-                            action: 'plugin',
-                            plugin: 'quickterminalscripts',
-                            pluginaction: 'getScripts'
-                        });
-                    } catch (e) {}
-                } else if (retries < 40) {
-                    setTimeout(function () {
-                        self.loadScripts(retries + 1);
+                var ms = window.meshserver;
+                var isWsReady = ms && (
+                    (ms.socket && ms.socket.readyState === 1) ||
+                    (ms.ws && ms.ws.readyState === 1) ||
+                    (ms.connectstate === 1) ||
+                    (typeof window.userinfo !== 'undefined' && window.userinfo !== null)
+                );
+
+                if (isWsReady && sendWsGet()) {
+                    // Sent successfully
+                } else {
+                    var retryCount = 0;
+                    var pollTimer = setInterval(function () {
+                        retryCount++;
+                        var ms2 = window.meshserver;
+                        var readyNow = ms2 && (
+                            (ms2.socket && ms2.socket.readyState === 1) ||
+                            (ms2.ws && ms2.ws.readyState === 1) ||
+                            (ms2.connectstate === 1) ||
+                            (typeof window.userinfo !== 'undefined' && window.userinfo !== null)
+                        );
+                        if (readyNow && sendWsGet()) {
+                            clearInterval(pollTimer);
+                        } else if (retryCount > 40) {
+                            clearInterval(pollTimer);
+                        }
                     }, 250);
                 }
 
-                // 3. Fallback HTTP GET
-                fetch('/plugin/quickterminalscripts/api/scripts', { credentials: 'same-origin' })
+                // 3. Redundant HTTP REST fallback with cache busting
+                fetch('/plugin/quickterminalscripts/api/scripts?_=' + Date.now(), { 
+                    cache: 'no-store',
+                    credentials: 'same-origin' 
+                })
                     .then(function (res) { if (res.ok) return res.json(); })
-                    .then(function (data) { if (Array.isArray(data) && data.length > 0) self.setScripts(data); })
+                    .then(function (data) { if (Array.isArray(data)) self.setScripts(data); })
                     .catch(function () {});
             },
 
@@ -637,6 +730,10 @@ var quickterminalscriptsPlugin = function (parent) {
                 }
                 this.updateFilteredScripts();
                 this.renderDropdown();
+                var adminModal = document.getElementById('qts-admin-modal-overlay');
+                if (adminModal && !this.editingScriptId) {
+                    this.renderScriptListView();
+                }
                 if (this.selectedScript) {
                     var found = null;
                     for (var i = 0; i < this.scripts.length; i++) {
@@ -698,9 +795,7 @@ var quickterminalscriptsPlugin = function (parent) {
                 this.updateFilteredScripts();
                 this.renderDropdown();
                 this.checkAndMount();
-                if (this.scripts.length === 0) {
-                    this.loadScripts();
-                }
+                this.loadScripts();
             },
 
             checkAndMount: function () {
@@ -710,9 +805,6 @@ var quickterminalscriptsPlugin = function (parent) {
                     this.mountToolbar();
                 }
                 this.updateAdminVisibility();
-                if (this.scripts.length === 0) {
-                    this.loadScripts();
-                }
             },
 
             mountToolbar: function () {
@@ -965,9 +1057,7 @@ var quickterminalscriptsPlugin = function (parent) {
             },
 
             openDropdown: function () {
-                if (this.scripts.length === 0) {
-                    this.loadScripts();
-                }
+                this.loadScripts();
                 var list = document.getElementById('qts-dropdown-list');
                 if (list) { list.style.display = 'block'; this.dropdownOpen = true; }
             },
@@ -1121,9 +1211,7 @@ var quickterminalscriptsPlugin = function (parent) {
                     this.showToast('Доступ запрещен: требуются права администратора.', 'error');
                     return;
                 }
-                if (this.scripts.length === 0) {
-                    this.loadScripts();
-                }
+                this.loadScripts();
                 this.editingScriptId = null;
                 this.modalSearchQuery = '';
                 this.renderAdminModal();

@@ -2,6 +2,14 @@
 
 All notable changes to the **QuickTerminalScripts** plugin will be documented in this file.
 
+## [1.0.6] - 2026-11-05
+### Fixed
+- Fixed multi-admin and multi-device real-time script synchronization:
+  - Added server-side WebSocket broadcast (`broadcastToAllUsers`) across all active MeshCentral sessions (`serverCore.webserver.wssessions2` & `wssessions`) whenever scripts are saved via WebSocket or REST API.
+  - Removed local cache gating (`this.scripts.length === 0`) in client controller: `loadScripts()` now actively queries the server on device switch, dropdown open, admin modal open, and via 10-second periodic background polling.
+  - Added HTTP cache busting query parameter (`?_=${Date.now()}`) and strict server headers (`Cache-Control: no-cache, no-store, must-revalidate`) preventing browser HTTP caching.
+  - Synchronized client-side inlined code in `quickterminalscripts.js` with `public/terminalscripts.js`.
+
 ## [1.0.5] - 2026-11-05
 ### Fixed
 - Fixed `NativeCommandFailed` / `Имя файла или его расширение имеет слишком большую длину` (Win32 `ERROR_FILENAME_EXCED_RANGE`) on long scripts when using Base64:
