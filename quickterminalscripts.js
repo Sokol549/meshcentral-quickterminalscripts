@@ -433,6 +433,109 @@ var quickterminalscriptsPlugin = function (parent) {
                 break;
             }
 
+            case 'saveScript': {
+                if (!isUserAdmin(user)) {
+                    sendToUser(myUser, {
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onSaveError',
+                        error: 'Access denied: Administrator permissions required',
+                        status: 403
+                    });
+                    return;
+                }
+
+                try {
+                    var scriptItem = command.script;
+                    if (!scriptItem || typeof scriptItem !== 'object') throw new Error('Invalid script object');
+                    var currentScripts = readScripts();
+                    scriptItem.id = String(scriptItem.id || ('qts-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9)));
+                    scriptItem.title = String(scriptItem.title || '').trim();
+                    scriptItem.content = String(scriptItem.content || '');
+                    scriptItem.targetOS = (['windows', 'linux', 'macos', 'all'].indexOf(scriptItem.targetOS) !== -1) ? scriptItem.targetOS : 'all';
+                    scriptItem.autoExecute = !!scriptItem.autoExecute;
+                    scriptItem.useBase64 = !!scriptItem.useBase64;
+
+                    var foundIdx = -1;
+                    for (var i = 0; i < currentScripts.length; i++) {
+                        if (currentScripts[i].id === scriptItem.id) {
+                            foundIdx = i;
+                            break;
+                        }
+                    }
+
+                    if (foundIdx !== -1) {
+                        currentScripts[foundIdx] = scriptItem;
+                    } else {
+                        currentScripts.push(scriptItem);
+                    }
+
+                    var result = saveScripts(currentScripts);
+                    broadcastToAllUsers({
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onScriptsLoaded',
+                        scripts: result
+                    });
+                    sendToUser(myUser, {
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onScriptsSaved',
+                        scripts: result,
+                        success: true
+                    });
+                } catch (e) {
+                    sendToUser(myUser, {
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onSaveError',
+                        error: 'Failed to save script: ' + e.message
+                    });
+                }
+                break;
+            }
+
+            case 'deleteScript': {
+                if (!isUserAdmin(user)) {
+                    sendToUser(myUser, {
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onSaveError',
+                        error: 'Access denied: Administrator permissions required',
+                        status: 403
+                    });
+                    return;
+                }
+
+                try {
+                    var delId = command.id || (command.script && command.script.id);
+                    var currentScripts = readScripts();
+                    var filtered = currentScripts.filter(function (s) { return s.id !== delId; });
+                    var result = saveScripts(filtered);
+                    broadcastToAllUsers({
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onScriptsLoaded',
+                        scripts: result
+                    });
+                    sendToUser(myUser, {
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onScriptsSaved',
+                        scripts: result,
+                        success: true
+                    });
+                } catch (e) {
+                    sendToUser(myUser, {
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onSaveError',
+                        error: 'Failed to delete script: ' + e.message
+                    });
+                }
+                break;
+            }
+
             case 'saveScripts': {
                 if (!isUserAdmin(user)) {
                     sendToUser(myUser, {
@@ -764,6 +867,55 @@ var quickterminalscriptsPlugin = function (parent) {
                         if (this.scripts[i].id === this.selectedScript.id) { found = this.scripts[i]; break; }
                     }
                     this.selectScript(found);
+                }
+            },
+
+            saveSingleScript: function (scriptItem, callback) {
+                var self = this;
+                var sentWs = false;
+                if (window.meshserver && typeof window.meshserver.send === 'function') {
+                    try {
+                        self._pendingSaveCallback = callback;
+                        window.meshserver.send({
+                            action: 'plugin',
+                            plugin: 'quickterminalscripts',
+                            pluginaction: 'saveScript',
+                            script: scriptItem
+                        });
+                        sentWs = true;
+                    } catch (e) {}
+                }
+
+                if (!sentWs) {
+                    var updated = self.scripts.slice();
+                    var found = false;
+                    for (var i = 0; i < updated.length; i++) {
+                        if (updated[i].id === scriptItem.id) { updated[i] = scriptItem; found = true; break; }
+                    }
+                    if (!found) updated.push(scriptItem);
+                    self.saveScriptsToServer(updated, callback);
+                }
+            },
+
+            deleteSingleScript: function (scriptId, callback) {
+                var self = this;
+                var sentWs = false;
+                if (window.meshserver && typeof window.meshserver.send === 'function') {
+                    try {
+                        self._pendingSaveCallback = callback;
+                        window.meshserver.send({
+                            action: 'plugin',
+                            plugin: 'quickterminalscripts',
+                            pluginaction: 'deleteScript',
+                            id: scriptId
+                        });
+                        sentWs = true;
+                    } catch (e) {}
+                }
+
+                if (!sentWs) {
+                    var filtered = self.scripts.filter(function (s) { return s.id !== scriptId; });
+                    self.saveScriptsToServer(filtered, callback);
                 }
             },
 
@@ -1447,36 +1599,19 @@ var quickterminalscriptsPlugin = function (parent) {
                     if (!title) { alert('Пожалуйста, укажите название команды.'); return; }
                     if (!content.trim()) { alert('Пожалуйста, введите текст скрипта.'); return; }
 
-                    var updatedScripts = self.scripts.slice();
-                    if (isNew) {
-                        updatedScripts.push({
-                            id: self.generateUUID(),
-                            title: title,
-                            targetOS: targetOS,
-                            autoExecute: autoExecute,
-                            useBase64: useBase64,
-                            content: content
-                        });
-                    } else {
-                        for (var k = 0; k < updatedScripts.length; k++) {
-                            if (updatedScripts[k].id === self.editingScriptId) {
-                                updatedScripts[k] = {
-                                    id: self.editingScriptId,
-                                    title: title,
-                                    targetOS: targetOS,
-                                    autoExecute: autoExecute,
-                                    useBase64: useBase64,
-                                    content: content
-                                };
-                                break;
-                            }
-                        }
-                    }
+                    var scriptItem = {
+                        id: isNew ? self.generateUUID() : self.editingScriptId,
+                        title: title,
+                        targetOS: targetOS,
+                        autoExecute: autoExecute,
+                        useBase64: useBase64,
+                        content: content
+                    };
 
                     var saveBtn = document.getElementById('qts-btn-save-form');
                     if (saveBtn) { saveBtn.disabled = true; saveBtn.innerText = 'Сохранение...'; }
 
-                    self.saveScriptsToServer(updatedScripts, function (err) {
+                    self.saveSingleScript(scriptItem, function (err) {
                         if (err) {
                             alert('Ошибка сохранения: ' + (err.message || err));
                             if (saveBtn) { saveBtn.disabled = false; saveBtn.innerText = 'Сохранить изменения'; }
@@ -1498,8 +1633,7 @@ var quickterminalscriptsPlugin = function (parent) {
                 if (!script) return;
 
                 if (confirm('Вы уверены, что хотите удалить команду «' + script.title + '»?')) {
-                    var updated = this.scripts.filter(function (s) { return s.id !== id; });
-                    this.saveScriptsToServer(updated, function (err) {
+                    self.deleteSingleScript(id, function (err) {
                         if (err) alert('Ошибка удаления: ' + (err.message || err));
                         else {
                             self.showToast('Команда удалена.', 'info');

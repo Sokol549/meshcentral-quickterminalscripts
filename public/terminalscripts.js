@@ -237,6 +237,55 @@
             }
         },
 
+        saveSingleScript: function (scriptItem, callback) {
+            var self = this;
+            var sentWs = false;
+            if (window.meshserver && typeof window.meshserver.send === 'function') {
+                try {
+                    self._pendingSaveCallback = callback;
+                    window.meshserver.send({
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        pluginaction: 'saveScript',
+                        script: scriptItem
+                    });
+                    sentWs = true;
+                } catch (e) {}
+            }
+
+            if (!sentWs) {
+                var updated = self.scripts.slice();
+                var found = false;
+                for (var i = 0; i < updated.length; i++) {
+                    if (updated[i].id === scriptItem.id) { updated[i] = scriptItem; found = true; break; }
+                }
+                if (!found) updated.push(scriptItem);
+                self.saveScriptsToServer(updated, callback);
+            }
+        },
+
+        deleteSingleScript: function (scriptId, callback) {
+            var self = this;
+            var sentWs = false;
+            if (window.meshserver && typeof window.meshserver.send === 'function') {
+                try {
+                    self._pendingSaveCallback = callback;
+                    window.meshserver.send({
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        pluginaction: 'deleteScript',
+                        id: scriptId
+                    });
+                    sentWs = true;
+                } catch (e) {}
+            }
+
+            if (!sentWs) {
+                var filtered = self.scripts.filter(function (s) { return s.id !== scriptId; });
+                self.saveScriptsToServer(filtered, callback);
+            }
+        },
+
         saveScriptsToServer: function (scriptsToSave, callback) {
             var self = this;
             self.setScripts(scriptsToSave); // Instant local update
@@ -1050,33 +1099,14 @@
                     return;
                 }
 
-                var updatedScripts = self.scripts.slice();
-
-                if (isNew) {
-                    var newScript = {
-                        id: self.generateUUID(),
-                        title: title,
-                        targetOS: targetOS,
-                        autoExecute: autoExecute,
-                        useBase64: useBase64,
-                        content: content
-                    };
-                    updatedScripts.push(newScript);
-                } else {
-                    for (var k = 0; k < updatedScripts.length; k++) {
-                        if (updatedScripts[k].id === self.editingScriptId) {
-                            updatedScripts[k] = {
-                                id: self.editingScriptId,
-                                title: title,
-                                targetOS: targetOS,
-                                autoExecute: autoExecute,
-                                useBase64: useBase64,
-                                content: content
-                            };
-                            break;
-                        }
-                    }
-                }
+                var scriptItem = {
+                    id: isNew ? self.generateUUID() : self.editingScriptId,
+                    title: title,
+                    targetOS: targetOS,
+                    autoExecute: autoExecute,
+                    useBase64: useBase64,
+                    content: content
+                };
 
                 var saveBtn = document.getElementById('qts-btn-save-form');
                 if (saveBtn) {
@@ -1084,7 +1114,7 @@
                     saveBtn.innerText = 'Сохранение...';
                 }
 
-                self.saveScriptsToServer(updatedScripts, function (err) {
+                self.saveSingleScript(scriptItem, function (err) {
                     if (err) {
                         alert('Ошибка сохранения: ' + (err.message || err));
                         if (saveBtn) {
@@ -1112,8 +1142,7 @@
             if (!script) return;
 
             if (confirm('Вы уверены, что хотите удалить команду «' + script.title + '»?')) {
-                var updated = this.scripts.filter(function (s) { return s.id !== id; });
-                this.saveScriptsToServer(updated, function (err) {
+                self.deleteSingleScript(id, function (err) {
                     if (err) {
                         alert('Ошибка удаления: ' + (err.message || err));
                     } else {

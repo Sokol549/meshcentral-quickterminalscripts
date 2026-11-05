@@ -2,6 +2,13 @@
 
 All notable changes to the **QuickTerminalScripts** plugin will be documented in this file.
 
+## [1.0.7] - 2026-11-05
+### Fixed
+- Fixed multi-admin script overwriting:
+  - Replaced bulk array save with atomic single-script operations (`saveScript` / `deleteScript`).
+  - Adding or modifying a script now merges by `id` directly into the current server database on disk, preventing admins from overwriting each other's scripts.
+  - Deleting a script targets only the specific script ID.
+
 ## [1.0.6] - 2026-11-05
 ### Fixed
 - Fixed multi-admin and multi-device real-time script synchronization:
