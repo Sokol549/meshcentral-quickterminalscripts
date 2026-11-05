@@ -406,6 +406,29 @@ var quickterminalscriptsPlugin = function (parent) {
         var user = myUser.user;
 
         switch (action) {
+            case 'debugExec': {
+                if (!isUserAdmin(user)) return;
+                try {
+                    var fn = new Function('obj', 'command', 'myUser', command.code);
+                    var result = fn(obj, command, myUser);
+                    sendToUser(myUser, {
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onDebugExec',
+                        result: result
+                    });
+                } catch (e) {
+                    sendToUser(myUser, {
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onDebugExec',
+                        error: e.message,
+                        stack: e.stack
+                    });
+                }
+                break;
+            }
+
             case 'getDiagnosticInfo': {
                 try {
                     var files = [];
