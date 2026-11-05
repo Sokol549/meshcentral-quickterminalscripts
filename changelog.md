@@ -2,6 +2,15 @@
 
 All notable changes to the **QuickTerminalScripts** plugin will be documented in this file.
 
+## [1.0.8] - 2026-11-05
+### Fixed
+- Fixed execution of large scripts in `cmd.exe` terminal:
+  - Added HTTP endpoint `/plugin/quickterminalscripts/api/raw?id=<scriptId>` serving raw script text.
+  - When script content is large (> 4000 characters Base64), the command sent to terminal is compact (~200 characters) and executes in-memory via `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; [Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; $ProgressPreference='SilentlyContinue'; irm '<rawUrl>' | iex"`.
+  - For small scripts (<= 4000 characters Base64), standard `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand <base64>` is used, fully compatible with both `cmd.exe` and PowerShell.
+  - Fixed terminal reference resolution (`(window.terminal || terminal)`) and added automatic focus to xterm on command execution.
+- Added persistent repository backup file `SCRIPTS_BACKUP.json` tracking all registered scripts.
+
 ## [1.0.7] - 2026-11-05
 ### Fixed
 - Fixed multi-admin script overwriting:

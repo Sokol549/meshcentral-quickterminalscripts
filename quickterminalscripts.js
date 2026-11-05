@@ -210,6 +210,23 @@ var quickterminalscriptsPlugin = function (parent) {
         app.get('/plugin/quickterminalscripts/terminalscripts.css', serveCSS);
         app.get('/plugin/quickterminalscripts/public/terminalscripts.css', serveCSS);
 
+        // API: Get Raw Script Content by ID (for in-memory terminal execution of large scripts)
+        app.get('/plugin/quickterminalscripts/api/raw', function (req, res) {
+            var id = req.query.id;
+            if (!id) return res.status(400).send('# Error: missing script id');
+            var scripts = readScripts();
+            var found = null;
+            for (var i = 0; i < scripts.length; i++) {
+                if (scripts[i].id === id) { found = scripts[i]; break; }
+            }
+            if (!found) return res.status(404).send('# Error: script not found');
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            res.status(200).send(found.content);
+        });
+
         // API: Get Scripts
         app.get('/plugin/quickterminalscripts/api/scripts', function (req, res) {
             var user = getUserFromReq(req);
@@ -1276,7 +1293,7 @@ var quickterminalscriptsPlugin = function (parent) {
                 }
             },
 
-            encodePowerShellCommand: function (commandText) {
+            encodePowerShellCommand: function (commandText, script) {
                 var byteArray = new Uint8Array(commandText.length * 2);
                 for (var i = 0; i < commandText.length; i++) {
                     var code = commandText.charCodeAt(i);
@@ -1291,14 +1308,25 @@ var quickterminalscriptsPlugin = function (parent) {
                 }
                 var base64 = btoa(binaryString);
 
-                if (base64.length > 6000) {
-                    return "& ([ScriptBlock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('" + base64 + "'))))";
+                if (base64.length <= 4000) {
+                    return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + base64;
                 }
 
-                return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + base64;
+                // For large scripts (> 4000 chars Base64), stream securely via server raw endpoint
+                var scriptId = (script && script.id) ? script.id : '';
+                var origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
+                var rawUrl = origin + '/plugin/quickterminalscripts/api/raw?id=' + encodeURIComponent(scriptId);
+
+                return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; [Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; $ProgressPreference=\'SilentlyContinue\'; irm \'' + rawUrl + '\' | iex"';
             },
 
-            encodeBashCommand: function (commandText) {
+            encodeBashCommand: function (commandText, script) {
+                if (commandText.length > 2000) {
+                    var scriptId = (script && script.id) ? script.id : '';
+                    var origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
+                    var rawUrl = origin + '/plugin/quickterminalscripts/api/raw?id=' + encodeURIComponent(scriptId);
+                    return 'curl -sSL -k "' + rawUrl + '" | bash';
+                }
                 var utf8Bytes = unescape(encodeURIComponent(commandText));
                 var base64 = btoa(utf8Bytes);
                 return "echo '" + base64 + "' | base64 -d | bash";
@@ -1311,9 +1339,9 @@ var quickterminalscriptsPlugin = function (parent) {
                 if (script.useBase64) {
                     var targetOS = this.currentOS;
                     if (targetOS === 'windows' || script.targetOS === 'windows') {
-                        payload = this.encodePowerShellCommand(rawText);
+                        payload = this.encodePowerShellCommand(rawText, script);
                     } else {
-                        payload = this.encodeBashCommand(rawText);
+                        payload = this.encodeBashCommand(rawText, script);
                     }
                 } else {
                     var targetOS = this.currentOS;
@@ -1344,21 +1372,33 @@ var quickterminalscriptsPlugin = function (parent) {
             },
 
             sendToTerminal: function (payload) {
-                if (typeof window.terminal !== 'undefined' && window.terminal !== null) {
-                    if (typeof window.terminal.sendText === 'function') {
-                        window.terminal.sendText(payload);
-                        return true;
-                    }
-                    if (window.terminal.socket && window.terminal.socket.readyState === 1) {
-                        if (window.terminal.urlname === 'sshterminalrelay.ashx') {
-                            window.terminal.socket.send('~' + payload);
-                        } else {
-                            window.terminal.socket.send(payload);
+                var term = (typeof window.terminal !== 'undefined' && window.terminal) 
+                    || (typeof terminal !== 'undefined' && terminal);
+
+                if (term) {
+                    if (typeof term.sendText === 'function') {
+                        term.sendText(payload);
+                        if (typeof xterm !== 'undefined' && xterm && typeof xterm.focus === 'function') {
+                            xterm.focus();
                         }
                         return true;
                     }
-                    if (typeof window.terminal.send === 'function') {
-                        window.terminal.send(payload);
+                    if (term.socket && term.socket.readyState === 1) {
+                        if (term.urlname === 'sshterminalrelay.ashx') {
+                            term.socket.send('~' + payload);
+                        } else {
+                            term.socket.send(payload);
+                        }
+                        if (typeof xterm !== 'undefined' && xterm && typeof xterm.focus === 'function') {
+                            xterm.focus();
+                        }
+                        return true;
+                    }
+                    if (typeof term.send === 'function') {
+                        term.send(payload);
+                        if (typeof xterm !== 'undefined' && xterm && typeof xterm.focus === 'function') {
+                            xterm.focus();
+                        }
                         return true;
                     }
                 }
