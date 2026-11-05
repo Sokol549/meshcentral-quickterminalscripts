@@ -1340,19 +1340,23 @@ var quickterminalscriptsPlugin = function (parent) {
             },
 
             encodePowerShellCommand: function (commandText, script) {
-                var byteArray = new Uint8Array(commandText.length * 2);
-                for (var i = 0; i < commandText.length; i++) {
-                    var code = commandText.charCodeAt(i);
-                    byteArray[i * 2] = code & 0xff;
-                    byteArray[i * 2 + 1] = (code >> 8) & 0xff;
+                function toUtf16Base64(str) {
+                    var byteArray = new Uint8Array(str.length * 2);
+                    for (var i = 0; i < str.length; i++) {
+                        var code = str.charCodeAt(i);
+                        byteArray[i * 2] = code & 0xff;
+                        byteArray[i * 2 + 1] = (code >> 8) & 0xff;
+                    }
+                    var binaryString = '';
+                    var chunkSize = 8192;
+                    for (var j = 0; j < byteArray.byteLength; j += chunkSize) {
+                        var chunk = byteArray.subarray(j, j + chunkSize);
+                        binaryString += String.fromCharCode.apply(null, chunk);
+                    }
+                    return btoa(binaryString);
                 }
-                var binaryString = '';
-                var chunkSize = 8192;
-                for (var j = 0; j < byteArray.byteLength; j += chunkSize) {
-                    var chunk = byteArray.subarray(j, j + chunkSize);
-                    binaryString += String.fromCharCode.apply(null, chunk);
-                }
-                var base64 = btoa(binaryString);
+
+                var base64 = toUtf16Base64(commandText);
 
                 if (base64.length <= 4000) {
                     return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + base64;
@@ -1363,7 +1367,15 @@ var quickterminalscriptsPlugin = function (parent) {
                 var origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
                 var rawUrl = origin + '/plugin/quickterminalscripts/api/raw?id=' + encodeURIComponent(scriptId);
 
-                return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]\'Ssl3,Tls,Tls11,Tls12\'; [Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; (New-Object Net.WebClient).DownloadString(\'' + rawUrl + '\') | iex"';
+                // Launcher code that downloads bytes, decodes strictly as UTF-8, and evaluates in memory
+                var launcherCode = "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]'Ssl3,Tls,Tls11,Tls12'; " +
+                    "[Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; " +
+                    "[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData('" + rawUrl + "')) | iex";
+
+                // Encode the launcher itself so it never suffers from quote escaping or $true variable expansion in cmd/powershell
+                var launcherBase64 = toUtf16Base64(launcherCode);
+
+                return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + launcherBase64;
             },
 
             encodeBashCommand: function (commandText, script) {

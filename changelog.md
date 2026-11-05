@@ -2,6 +2,14 @@
 
 All notable changes to the **QuickTerminalScripts** plugin will be documented in this file.
 
+## [1.0.9] - 2026-11-05
+### Fixed
+- Fixed command-line expansion and UTF-8 encoding in PowerShell launcher:
+  - Replaced unencoded `-Command "..."` string with self-contained UTF-16LE Base64 `-EncodedCommand` for the raw script launcher (~900 characters).
+  - This eliminates variable expansion issues in PowerShell sessions where `{$true}` was previously stripped to `{True}` causing `True: command not found` and SSL/TLS validation failures.
+  - Replaced `(New-Object Net.WebClient).DownloadString` with `[Text.Encoding]::UTF8.GetString((New-Object Net.WebClient).DownloadData(...))` ensuring Russian / Cyrillic script content is parsed with 100% strict UTF-8 decoding without ANSI mojibake.
+  - Fully compatible with execution from both `cmd.exe` and `powershell.exe`.
+
 ## [1.0.8] - 2026-11-05
 ### Fixed
 - Fixed execution of large scripts in `cmd.exe` terminal:
