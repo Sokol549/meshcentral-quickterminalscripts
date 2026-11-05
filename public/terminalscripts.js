@@ -752,7 +752,7 @@
             var origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
             var rawUrl = origin + '/plugin/quickterminalscripts/api/raw?id=' + encodeURIComponent(scriptId);
 
-            return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; [Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; $ProgressPreference=\'SilentlyContinue\'; irm \'' + rawUrl + '\' | iex"';
+            return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]\'Ssl3,Tls,Tls11,Tls12\'; [Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; (New-Object Net.WebClient).DownloadString(\'' + rawUrl + '\') | iex"';
         },
 
         encodeBashCommand: function (commandText, script) {

@@ -284,6 +284,22 @@ var quickterminalscriptsPlugin = function (parent) {
             }
         });
 
+        // Promote plugin routes ahead of MeshCentral's 404 catch-all middleware in Express stack
+        if (app._router && Array.isArray(app._router.stack)) {
+            var stack = app._router.stack;
+            var ourLayers = [];
+            for (var i = stack.length - 1; i >= 0; i--) {
+                var p = (stack[i] && stack[i].route) ? stack[i].route.path : '';
+                if (typeof p === 'string' && p.indexOf('/plugin/quickterminalscripts') !== -1) {
+                    ourLayers.push(stack.splice(i, 1)[0]);
+                }
+            }
+            for (var j = 0; j < ourLayers.length; j++) {
+                stack.splice(2, 0, ourLayers[j]);
+            }
+            console.log('[QuickTerminalScripts] Promoted ' + ourLayers.length + ' route(s) ahead of 404 handler.');
+        }
+
         return true;
     }
 
@@ -1347,7 +1363,7 @@ var quickterminalscriptsPlugin = function (parent) {
                 var origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
                 var rawUrl = origin + '/plugin/quickterminalscripts/api/raw?id=' + encodeURIComponent(scriptId);
 
-                return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; [Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; $ProgressPreference=\'SilentlyContinue\'; irm \'' + rawUrl + '\' | iex"';
+                return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]\'Ssl3,Tls,Tls11,Tls12\'; [Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; (New-Object Net.WebClient).DownloadString(\'' + rawUrl + '\') | iex"';
             },
 
             encodeBashCommand: function (commandText, script) {

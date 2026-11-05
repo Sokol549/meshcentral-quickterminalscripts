@@ -6,10 +6,12 @@ All notable changes to the **QuickTerminalScripts** plugin will be documented in
 ### Fixed
 - Fixed execution of large scripts in `cmd.exe` terminal:
   - Added HTTP endpoint `/plugin/quickterminalscripts/api/raw?id=<scriptId>` serving raw script text.
-  - When script content is large (> 4000 characters Base64), the command sent to terminal is compact (~200 characters) and executes in-memory via `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; [Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; $ProgressPreference='SilentlyContinue'; irm '<rawUrl>' | iex"`.
-  - For small scripts (<= 4000 characters Base64), standard `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand <base64>` is used, fully compatible with both `cmd.exe` and PowerShell.
+  - Automatically promoted plugin routes in Express router stack ahead of MeshCentral's 404 catch-all handler so routes are always matched cleanly.
+  - When script content is large (> 4000 characters Base64), the command sent to terminal is compact (~250 characters) and executes in-memory via `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]'Ssl3,Tls,Tls11,Tls12'; [Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; (New-Object Net.WebClient).DownloadString('<rawUrl>') | iex"`.
+  - Fully compatible with `cmd.exe` input buffer limit (8,191 bytes) and runs cleanly in both `cmd.exe` and PowerShell across all Windows versions.
+  - For small scripts (<= 4000 characters Base64), standard `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand <base64>` is used.
   - Fixed terminal reference resolution (`(window.terminal || terminal)`) and added automatic focus to xterm on command execution.
-- Added persistent repository backup file `SCRIPTS_BACKUP.json` tracking all registered scripts.
+- Added persistent repository backup file `SCRIPTS_BACKUP.json` tracking all registered scripts to guarantee zero script loss across updates.
 
 ## [1.0.7] - 2026-11-05
 ### Fixed
