@@ -2,6 +2,14 @@
 
 All notable changes to the **QuickTerminalScripts** plugin will be documented in this file.
 
+## [1.0.4] - 2026-11-05
+### Fixed
+- Fixed script synchronization across nodes, new browser tabs, and page reloads by implementing WebSocket polling retry in `loadScripts()`.
+- Added instant script restoration and offline caching using `localStorage`.
+- Enhanced OS detection with MeshCentral's native `isWindowsNode()` and extended 64-bit/ARM agent ID tables.
+- Added empty-state transparency in the dropdown: if commands exist on the server but are filtered out by OS, users can click "Показать все скрипты" to display them anyway.
+- Fixed dropdown footer so the administrator management button is always visible even when 0 filtered scripts match.
+
 ## [1.0.3] - 2026-11-05
 ### Fixed
 - Fixed admin detection by inspecting `userinfo` and MeshCentral global user objects.

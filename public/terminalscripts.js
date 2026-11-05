@@ -97,6 +97,13 @@
 
             if (!node) return 'all';
 
+            // 1. MeshCentral built-in helper functions
+            try {
+                if (typeof window.isWindowsNode === 'function' && window.isWindowsNode(node)) return 'windows';
+                if (typeof window.isMacNode === 'function' && window.isMacNode(node)) return 'macos';
+            } catch (e) {}
+
+            // 2. Node OS description & os field
             var os = (node.os || '').toLowerCase();
             if (os.indexOf('win') !== -1) return 'windows';
             if (os.indexOf('linux') !== -1) return 'linux';
@@ -109,11 +116,12 @@
                 osdesc.indexOf('red hat') !== -1 || osdesc.indexOf('alpine') !== -1) return 'linux';
             if (osdesc.indexOf('mac') !== -1 || osdesc.indexOf('darwin') !== -1 || osdesc.indexOf('osx') !== -1) return 'macos';
 
+            // 3. MeshCentral Agent ID mapping
             if (node.agent && typeof node.agent.id === 'number') {
                 var aid = node.agent.id;
-                if ((aid >= 1 && aid <= 4) || aid === 10 || aid === 11) return 'windows';
-                if (aid === 16 || aid === 29 || aid === 30) return 'macos';
-                if ((aid >= 5 && aid <= 9) || (aid >= 12 && aid <= 15) || (aid >= 17 && aid <= 28)) return 'linux';
+                if ([1, 2, 3, 4, 10, 11, 21, 22, 34, 42, 43].indexOf(aid) !== -1) return 'windows';
+                if ([16, 29, 30].indexOf(aid) !== -1) return 'macos';
+                if ([5, 6, 7, 8, 9, 12, 13, 14, 15, 17, 18, 19, 20, 23, 24, 25, 26, 27, 28].indexOf(aid) !== -1) return 'linux';
             }
 
             return 'all';
@@ -122,10 +130,34 @@
         // -------------------------------------------------------------
         // Data Loading & Synchronization
         // -------------------------------------------------------------
-        loadScripts: function () {
+        loadScripts: function (retries) {
             var self = this;
-            // 1. Try via WebSocket if meshserver is available
-            if (window.meshserver && typeof window.meshserver.send === 'function') {
+            retries = retries || 0;
+
+            // 1. Instant cache restoration from localStorage for immediate UI availability
+            if (self.scripts.length === 0) {
+                try {
+                    var cached = localStorage.getItem('qts_scripts_cache');
+                    if (cached) {
+                        var parsed = JSON.parse(cached);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            self.setScripts(parsed, true);
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            // 2. Query via WebSocket if connection is ready
+            var isWsReady = false;
+            try {
+                if (window.meshserver && window.meshserver.ws && window.meshserver.ws.readyState === 1) {
+                    isWsReady = true;
+                } else if (window.meshserver && typeof window.meshserver.send === 'function' && (window.userinfo || window.currentUser)) {
+                    isWsReady = true;
+                }
+            } catch (e) {}
+
+            if (isWsReady) {
                 try {
                     window.meshserver.send({
                         action: 'plugin',
@@ -133,26 +165,34 @@
                         pluginaction: 'getScripts'
                     });
                 } catch (e) {}
+            } else if (retries < 40) {
+                // Keep polling until WebSocket handshake completes
+                setTimeout(function () {
+                    self.loadScripts(retries + 1);
+                }, 250);
             }
 
-            // 2. Also fetch via HTTP REST API for redundancy
+            // 3. Redundant HTTP REST fallback
             fetch('/plugin/quickterminalscripts/api/scripts', { credentials: 'same-origin' })
                 .then(function (res) {
                     if (res.ok) return res.json();
-                    throw new Error('HTTP ' + res.status);
                 })
                 .then(function (data) {
-                    if (Array.isArray(data)) {
+                    if (Array.isArray(data) && data.length > 0) {
                         self.setScripts(data);
                     }
                 })
-                .catch(function () {
-                    // Fail silently or wait for WebSocket
-                });
+                .catch(function () {});
         },
 
-        setScripts: function (newScripts) {
-            this.scripts = Array.isArray(newScripts) ? newScripts : [];
+        setScripts: function (newScripts, fromCache) {
+            if (!Array.isArray(newScripts)) return;
+            this.scripts = newScripts;
+            if (!fromCache) {
+                try {
+                    localStorage.setItem('qts_scripts_cache', JSON.stringify(newScripts));
+                } catch (e) {}
+            }
             this.updateFilteredScripts();
             this.renderDropdown();
             // If currently selected script was modified or deleted, update selection
@@ -170,53 +210,43 @@
 
         saveScriptsToServer: function (scriptsToSave, callback) {
             var self = this;
-            var jsonPayload = JSON.stringify(scriptsToSave);
+            self.setScripts(scriptsToSave); // Instant local update
 
-            // Primary: HTTP POST
+            var sentWs = false;
+            if (window.meshserver && typeof window.meshserver.send === 'function') {
+                try {
+                    self._pendingSaveCallback = callback;
+                    window.meshserver.send({
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        pluginaction: 'saveScripts',
+                        scripts: scriptsToSave
+                    });
+                    sentWs = true;
+                } catch (e) {}
+            }
+
+            // HTTP POST fallback
             fetch('/plugin/quickterminalscripts/api/scripts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: jsonPayload
+                body: JSON.stringify(scriptsToSave)
             })
             .then(function (res) {
                 if (res.ok) return res.json();
-                return res.json().then(function (errData) {
-                    throw new Error(errData.error || ('HTTP ' + res.status));
-                }).catch(function (e) {
-                    throw new Error(e.message || ('HTTP ' + res.status));
-                });
             })
             .then(function (result) {
-                self.setScripts(scriptsToSave);
-                // Also broadcast via WebSocket
-                if (window.meshserver && typeof window.meshserver.send === 'function') {
-                    try {
-                        window.meshserver.send({
-                            action: 'plugin',
-                            plugin: 'quickterminalscripts',
-                            pluginaction: 'saveScripts',
-                            scripts: scriptsToSave
-                        });
-                    } catch (e) {}
+                if (self._pendingSaveCallback) {
+                    var cb = self._pendingSaveCallback;
+                    delete self._pendingSaveCallback;
+                    cb(null, result);
                 }
-                if (typeof callback === 'function') callback(null, result);
             })
             .catch(function (err) {
-                // Try fallback to WebSocket if HTTP failed
-                if (window.meshserver && typeof window.meshserver.send === 'function') {
-                    try {
-                        self._pendingSaveCallback = callback;
-                        window.meshserver.send({
-                            action: 'plugin',
-                            plugin: 'quickterminalscripts',
-                            pluginaction: 'saveScripts',
-                            scripts: scriptsToSave
-                        });
-                        return;
-                    } catch (e) {}
+                if (!sentWs && typeof callback === 'function') {
+                    callback(err);
                 }
-                if (typeof callback === 'function') callback(err);
             });
         },
 
@@ -247,17 +277,26 @@
         },
 
         onDeviceChanged: function () {
-            var newOS = this.detectCurrentOS();
-            if (newOS !== this.currentOS) {
-                this.currentOS = newOS;
-                this.updateFilteredScripts();
-                this.renderDropdown();
-            }
+            this.currentOS = this.detectCurrentOS();
+            this.updateFilteredScripts();
+            this.renderDropdown();
             this.checkAndMount();
+            if (this.scripts.length === 0) {
+                this.loadScripts();
+            }
         },
 
         checkAndMount: function () {
             var p12 = document.getElementById('p12');
+            var isTerminalVisible = p12 && (p12.style.display !== 'none');
+            if (isTerminalVisible) {
+                this.mountToolbar();
+            }
+            this.updateAdminVisibility();
+            if (this.scripts.length === 0) {
+                this.loadScripts();
+            }
+        },
             var isTerminalVisible = p12 && (p12.style.display !== 'none');
             if (isTerminalVisible) {
                 this.mountToolbar();
@@ -396,11 +435,12 @@
         updateFilteredScripts: function (query) {
             query = (query || '').toLowerCase().trim();
             var targetOS = this.currentOS;
+            var showAll = this._showAllOSOverride;
 
             this.filteredScripts = this.scripts.filter(function (s) {
                 // OS Filter
                 var matchesOS = false;
-                if (!s.targetOS || s.targetOS === 'all') {
+                if (showAll || !s.targetOS || s.targetOS === 'all' || targetOS === 'all') {
                     matchesOS = true;
                 } else if (targetOS === 'windows' && s.targetOS === 'windows') {
                     matchesOS = true;
@@ -408,13 +448,11 @@
                     matchesOS = true;
                 } else if (targetOS === 'macos' && s.targetOS === 'macos') {
                     matchesOS = true;
-                } else if (targetOS === 'all') {
-                    matchesOS = true;
                 }
 
                 if (!matchesOS) return false;
 
-                // Title Search Filter
+                // Title & Content Search Filter
                 if (!query) return true;
                 var inTitle = (s.title || '').toLowerCase().indexOf(query) !== -1;
                 var inContent = (s.content || '').toLowerCase().indexOf(query) !== -1;
@@ -429,40 +467,49 @@
             var list = document.getElementById('qts-dropdown-list');
             if (!list) return;
 
-            if (this.filteredScripts.length === 0) {
-                list.innerHTML = '<li class="qts-dropdown-empty">Команды не найдены</li>';
-                return;
-            }
-
             var self = this;
             var html = [];
 
-            for (var i = 0; i < this.filteredScripts.length; i++) {
-                var s = this.filteredScripts[i];
-                var isActive = (i === this.highlightedIndex);
-                var isSelected = (self.selectedScript && self.selectedScript.id === s.id);
+            if (this.filteredScripts.length === 0) {
+                if (this.scripts.length === 0) {
+                    html.push('<li class="qts-dropdown-empty">Загрузка скриптов...</li>');
+                } else {
+                    html.push(
+                        '<li class="qts-dropdown-empty">',
+                        '  <div style="font-weight:600;margin-bottom:4px;color:#1e293b;">Нет команд для ОС «' + (this.currentOS || 'все') + '»</div>',
+                        '  <div style="font-size:11px;color:#64748b;margin-bottom:6px;">Всего скриптов в базе: ' + this.scripts.length + '</div>',
+                        '  <button type="button" id="qts-btn-show-all-os" style="background:#2563eb;color:#ffffff;border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;">Показать все скрипты</button>',
+                        '</li>'
+                    );
+                }
+            } else {
+                for (var i = 0; i < this.filteredScripts.length; i++) {
+                    var s = this.filteredScripts[i];
+                    var isActive = (i === this.highlightedIndex);
+                    var isSelected = (self.selectedScript && self.selectedScript.id === s.id);
 
-                var badgeClass = 'qts-badge-all';
-                var badgeLabel = 'Все';
-                if (s.targetOS === 'windows') { badgeClass = 'qts-badge-win'; badgeLabel = 'Win'; }
-                else if (s.targetOS === 'linux') { badgeClass = 'qts-badge-linux'; badgeLabel = 'Linux'; }
-                else if (s.targetOS === 'macos') { badgeClass = 'qts-badge-macos'; badgeLabel = 'macOS'; }
+                    var badgeClass = 'qts-badge-all';
+                    var badgeLabel = 'Все';
+                    if (s.targetOS === 'windows') { badgeClass = 'qts-badge-win'; badgeLabel = 'Win'; }
+                    else if (s.targetOS === 'linux') { badgeClass = 'qts-badge-linux'; badgeLabel = 'Linux'; }
+                    else if (s.targetOS === 'macos') { badgeClass = 'qts-badge-macos'; badgeLabel = 'macOS'; }
 
-                var enterFlag = s.autoExecute ? '<span class="qts-badge qts-badge-flag" title="Авто-Enter (выполнение)">↵ Enter</span>' : '';
-                var b64Flag = s.useBase64 ? '<span class="qts-badge qts-badge-flag" title="Base64 безопасная обертка">B64</span>' : '';
+                    var enterFlag = s.autoExecute ? '<span class="qts-badge qts-badge-flag" title="Авто-Enter (выполнение)">↵ Enter</span>' : '';
+                    var b64Flag = s.useBase64 ? '<span class="qts-badge qts-badge-flag" title="Base64 безопасная обертка">B64</span>' : '';
 
-                html.push(
-                    '<li class="qts-dropdown-item' + (isActive ? ' qts-item-active' : '') + (isSelected ? ' qts-item-selected' : '') + '" data-index="' + i + '">',
-                    '  <div class="qts-item-left">',
-                    '    <span class="qts-badge ' + badgeClass + '">' + badgeLabel + '</span>',
-                    '    <span class="qts-item-title" title="' + self.escapeHtml(s.title) + '">' + self.escapeHtml(s.title) + '</span>',
-                    '  </div>',
-                    '  <div class="qts-item-right">',
-                    '    ' + enterFlag,
-                    '    ' + b64Flag,
-                    '  </div>',
-                    '</li>'
-                );
+                    html.push(
+                        '<li class="qts-dropdown-item' + (isActive ? ' qts-item-active' : '') + (isSelected ? ' qts-item-selected' : '') + '" data-index="' + i + '">',
+                        '  <div class="qts-item-left">',
+                        '    <span class="qts-badge ' + badgeClass + '">' + badgeLabel + '</span>',
+                        '    <span class="qts-item-title" title="' + self.escapeHtml(s.title) + '">' + self.escapeHtml(s.title) + '</span>',
+                        '  </div>',
+                        '  <div class="qts-item-right">',
+                        '    ' + enterFlag,
+                        '    ' + b64Flag,
+                        '  </div>',
+                        '</li>'
+                    );
+                }
             }
 
             if (this.isUserAdmin()) {
@@ -474,6 +521,16 @@
             }
 
             list.innerHTML = html.join('');
+
+            var showAllBtn = document.getElementById('qts-btn-show-all-os');
+            if (showAllBtn) {
+                showAllBtn.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    self._showAllOSOverride = true;
+                    self.updateFilteredScripts();
+                    self.renderDropdown();
+                });
+            }
 
             var manageBtn = document.getElementById('qts-dropdown-manage-btn');
             if (manageBtn) {
@@ -495,6 +552,7 @@
                     });
                 })(j);
             }
+        },
         },
 
         handleInputKeydown: function (e) {
@@ -550,6 +608,9 @@
         },
 
         openDropdown: function () {
+            if (this.scripts.length === 0) {
+                this.loadScripts();
+            }
             var list = document.getElementById('qts-dropdown-list');
             if (list) {
                 list.style.display = 'block';
@@ -714,6 +775,9 @@
             if (!this.isUserAdmin()) {
                 this.showToast('Доступ запрещен: требуются права администратора.', 'error');
                 return;
+            }
+            if (this.scripts.length === 0) {
+                this.loadScripts();
             }
 
             this.editingScriptId = null;
