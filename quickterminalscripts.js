@@ -307,6 +307,19 @@ var quickterminalscriptsPlugin = function (parent) {
         return template;
     };
 
+    function sendToUser(myUser, dataObj) {
+        if (!myUser) return;
+        try {
+            if (typeof myUser.send === 'function') {
+                myUser.send(dataObj);
+            } else if (myUser.ws && typeof myUser.ws.send === 'function') {
+                myUser.ws.send(JSON.stringify(dataObj));
+            }
+        } catch (e) {
+            console.error('[QuickTerminalScripts] sendToUser error:', e.message);
+        }
+    }
+
     // -----------------------------------------------------------------
     // WebSocket Plugin Message Handler
     // -----------------------------------------------------------------
@@ -320,52 +333,52 @@ var quickterminalscriptsPlugin = function (parent) {
             case 'getScripts': {
                 try {
                     var scripts = readScripts();
-                    myUser.send(JSON.stringify({
+                    sendToUser(myUser, {
                         action: 'plugin',
                         plugin: 'quickterminalscripts',
                         method: 'onScriptsLoaded',
                         scripts: scripts
-                    }));
+                    });
                 } catch (e) {
-                    myUser.send(JSON.stringify({
+                    sendToUser(myUser, {
                         action: 'plugin',
                         plugin: 'quickterminalscripts',
                         method: 'onSaveError',
                         error: 'Failed to read scripts: ' + e.message
-                    }));
+                    });
                 }
                 break;
             }
 
             case 'saveScripts': {
                 if (!isUserAdmin(user)) {
-                    myUser.send(JSON.stringify({
+                    sendToUser(myUser, {
                         action: 'plugin',
                         plugin: 'quickterminalscripts',
                         method: 'onSaveError',
                         error: 'Access denied: Administrator permissions required',
                         status: 403
-                    }));
+                    });
                     return;
                 }
 
                 try {
                     var toSave = command.scripts;
                     var result = saveScripts(toSave);
-                    myUser.send(JSON.stringify({
+                    sendToUser(myUser, {
                         action: 'plugin',
                         plugin: 'quickterminalscripts',
                         method: 'onScriptsSaved',
                         scripts: result,
                         success: true
-                    }));
+                    });
                 } catch (e) {
-                    myUser.send(JSON.stringify({
+                    sendToUser(myUser, {
                         action: 'plugin',
                         plugin: 'quickterminalscripts',
                         method: 'onSaveError',
                         error: 'Failed to save scripts: ' + e.message
-                    }));
+                    });
                 }
                 break;
             }
