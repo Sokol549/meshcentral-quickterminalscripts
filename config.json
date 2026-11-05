@@ -1,0 +1,19 @@
+{
+  "name": "QuickTerminalScripts",
+  "shortName": "quickterminalscripts",
+  "shortDescription": "Quick command & script injector for MeshCentral Terminal",
+  "description": "Плагин для быстрой инжекции предустановленных команд и скриптов в терминал MeshCentral с фильтрацией по ОС и поддержкой Base64 кодирования.",
+  "version": "1.0.0",
+  "author": "Alex",
+  "license": "MIT",
+  "meshCentralCompat": ">=1.0.0",
+  "hasAdminPanel": false,
+  "homepage": "https://github.com/Sokol549/meshcentral-quickterminalscripts#readme",
+  "changelogUrl": "https://raw.githubusercontent.com/Sokol549/meshcentral-quickterminalscripts/master/changelog.md",
+  "configUrl": "https://raw.githubusercontent.com/Sokol549/meshcentral-quickterminalscripts/master/config.json",
+  "downloadUrl": "https://github.com/Sokol549/meshcentral-quickterminalscripts/archive/master.zip",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sokol549/meshcentral-quickterminalscripts"
+  }
+}

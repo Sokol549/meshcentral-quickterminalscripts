@@ -1,0 +1,74 @@
+[
+  {
+    "id": "e4b1-4f92-91a0",
+    "title": "Перезапуск службы Spooler (Print Spooler)",
+    "targetOS": "windows",
+    "autoExecute": true,
+    "useBase64": false,
+    "content": "Restart-Service -Name Spooler -Force"
+  },
+  {
+    "id": "c1a2-3b4c-5d6e",
+    "title": "Сбор диагностических данных (PowerShell многострочный)",
+    "targetOS": "windows",
+    "autoExecute": true,
+    "useBase64": true,
+    "content": "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10;\nGet-Service | Where-Object {$_.Status -eq 'Stopped' -and $_.StartType -eq 'Automatic'}"
+  },
+  {
+    "id": "a9f8-7e6d-5c4b",
+    "title": "Проверка использования диска (df -h)",
+    "targetOS": "linux",
+    "autoExecute": false,
+    "useBase64": false,
+    "content": "df -h | grep -v tmpfs"
+  },
+  {
+    "id": "b2c3-d4e5-f6a7",
+    "title": "Очистка кэша DNS (ipconfig /flushdns)",
+    "targetOS": "windows",
+    "autoExecute": true,
+    "useBase64": false,
+    "content": "ipconfig /flushdns"
+  },
+  {
+    "id": "7b8c-9d0e-1f2a",
+    "title": "Сетевая конфигурация (ipconfig /all)",
+    "targetOS": "windows",
+    "autoExecute": true,
+    "useBase64": false,
+    "content": "ipconfig /all"
+  },
+  {
+    "id": "d5e6-f7a8-b9c0",
+    "title": "Использование памяти и Uptime (free -m && uptime)",
+    "targetOS": "linux",
+    "autoExecute": true,
+    "useBase64": false,
+    "content": "free -m; uptime"
+  },
+  {
+    "id": "3e4f-5a6b-7c8d",
+    "title": "Топ 10 процессов по памяти (Linux)",
+    "targetOS": "linux",
+    "autoExecute": true,
+    "useBase64": true,
+    "content": "ps aux --sort=-%mem | awk 'NR<=10{print $1,$2,$3,$4,$11}'"
+  },
+  {
+    "id": "1a2b-3c4d-5e6f",
+    "title": "Сетевые интерфейсы (ifconfig)",
+    "targetOS": "macos",
+    "autoExecute": true,
+    "useBase64": false,
+    "content": "ifconfig"
+  },
+  {
+    "id": "f8a9-b0c1-d2e3",
+    "title": "Проверка доступности интернета (Ping 8.8.8.8)",
+    "targetOS": "all",
+    "autoExecute": true,
+    "useBase64": false,
+    "content": "ping 8.8.8.8"
+  }
+]
