@@ -45,6 +45,8 @@ var quickterminalscriptsPlugin = function (parent) {
     }
 
     initializeStorage();
+    // Call route registration immediately upon module instantiation
+    tryRegisterRoutes(10);
 
     // -----------------------------------------------------------------
     // Data Access Helpers
@@ -177,8 +179,6 @@ var quickterminalscriptsPlugin = function (parent) {
     // -----------------------------------------------------------------
     function registerRoutes(app) {
         if (!app || typeof app.get !== 'function' || typeof app.post !== 'function') return false;
-        if (app._quickterminalscripts_registered) return true;
-        app._quickterminalscripts_registered = true;
 
         console.log('[QuickTerminalScripts] Registering HTTP routes and assets...');
 
@@ -416,13 +416,20 @@ var quickterminalscriptsPlugin = function (parent) {
                             bakContent = JSON.parse(fs.readFileSync(backupFilePath, 'utf8'));
                         }
                     } catch (e) { bakContent = 'error: ' + e.message; }
+                    var s = obj.meshServer || (obj.parent && obj.parent.parent) || (obj.parent && obj.parent.meshServer) || obj.parent;
+                    var app = getExpressApp();
                     sendToUser(myUser, {
                         action: 'plugin',
                         plugin: 'quickterminalscripts',
                         method: 'onDiagnosticInfo',
                         dataPath: dataPath,
                         files: files,
-                        backupContent: bakContent
+                        backupContent: bakContent,
+                        hasServer: !!s,
+                        hasApp: !!app,
+                        parentKeys: obj.parent ? Object.keys(obj.parent) : [],
+                        serverKeys: s ? Object.keys(s) : [],
+                        webserverKeys: (s && s.webserver) ? Object.keys(s.webserver) : []
                     });
                 } catch (e) {
                     sendToUser(myUser, { action: 'plugin', plugin: 'quickterminalscripts', method: 'onDiagnosticInfo', error: e.message });
