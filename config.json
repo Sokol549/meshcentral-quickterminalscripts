@@ -3,7 +3,7 @@
   "shortName": "quickterminalscripts",
   "shortDescription": "Quick command & script injector for MeshCentral Terminal",
   "description": "Плагин для быстрой инжекции предустановленных команд и скриптов в терминал MeshCentral с фильтрацией по ОС и поддержкой Base64 кодирования.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Alex",
   "license": "MIT",
   "meshCentralCompat": ">=1.0.0",

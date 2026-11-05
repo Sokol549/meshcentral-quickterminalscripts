@@ -2,6 +2,10 @@
 
 All notable changes to the **QuickTerminalScripts** plugin will be documented in this file.
 
+## [1.0.1] - 2026-11-05
+### Changed
+- Inlined CSS and client logic in onWebUIStartupEnd for instant zero-dependency execution.
+
 ## [1.0.0] - 2026-11-05
 
 ### Added
