@@ -389,6 +389,30 @@ var quickterminalscriptsPlugin = function (parent) {
         var user = myUser.user;
 
         switch (action) {
+            case 'getDiagnosticInfo': {
+                try {
+                    var files = [];
+                    try { files = fs.readdirSync(dataPath); } catch (e) {}
+                    var bakContent = null;
+                    try {
+                        if (fs.existsSync(backupFilePath)) {
+                            bakContent = JSON.parse(fs.readFileSync(backupFilePath, 'utf8'));
+                        }
+                    } catch (e) { bakContent = 'error: ' + e.message; }
+                    sendToUser(myUser, {
+                        action: 'plugin',
+                        plugin: 'quickterminalscripts',
+                        method: 'onDiagnosticInfo',
+                        dataPath: dataPath,
+                        files: files,
+                        backupContent: bakContent
+                    });
+                } catch (e) {
+                    sendToUser(myUser, { action: 'plugin', plugin: 'quickterminalscripts', method: 'onDiagnosticInfo', error: e.message });
+                }
+                break;
+            }
+
             case 'getScripts': {
                 try {
                     var scripts = readScripts();
