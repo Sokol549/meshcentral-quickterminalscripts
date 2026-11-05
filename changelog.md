@@ -2,6 +2,12 @@
 
 All notable changes to the **QuickTerminalScripts** plugin will be documented in this file.
 
+## [1.0.3] - 2026-11-05
+### Fixed
+- Fixed admin detection by inspecting `userinfo` and MeshCentral global user objects.
+- Added dynamic visibility handling for the settings button (`#qts-btn-settings`) so it appears reliably even if user info loads asynchronously after DOM mounting.
+- Added admin management quick link directly inside the dropdown menu footer.
+
 ## [1.0.1] - 2026-11-05
 ### Changed
 - Inlined CSS and client logic in onWebUIStartupEnd for instant zero-dependency execution.

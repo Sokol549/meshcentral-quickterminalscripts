@@ -448,6 +448,9 @@ var quickterminalscriptsPlugin = function (parent) {
                 .qts-toast-success { background-color: #16a34a; }
                 .qts-toast-error { background-color: #dc2626; }
                 .qts-toast-info { background-color: #0284c7; }
+                .qts-dropdown-footer { border-top: 1px solid #e2e8f0; padding: 6px 10px; background-color: #f8fafc; text-align: right; list-style: none; }
+                .qts-btn-dropdown-admin { background: transparent; border: none; color: #2563eb; font-size: 11px; font-weight: 600; cursor: pointer; padding: 2px 4px; line-height: 1.4; }
+                .qts-btn-dropdown-admin:hover { text-decoration: underline; color: #1d4ed8; }
                 .qts-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(15, 23, 42, 0.65); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 100000; padding: 16px; }
                 .qts-modal { background: #ffffff; border-radius: 8px; width: 100%; max-width: 780px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 10px 10px -5px rgba(0, 0, 0, 0.1); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; overflow: hidden; }
                 .qts-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background-color: #0f172a; color: #f8fafc; border-bottom: 1px solid #334155; }
@@ -514,13 +517,32 @@ var quickterminalscriptsPlugin = function (parent) {
 
             isUserAdmin: function () {
                 try {
-                    if (window.user) {
-                        if (window.user.siteadmin === 0xFFFFFFFF || window.user.siteadmin === -1) return true;
-                        if (typeof window.user.siteadmin === 'number' && (window.user.siteadmin & 1) !== 0) return true;
-                        if (window.user.siteadmin === true || window.user.siteadmin === 1) return true;
+                    var u = (typeof window.userinfo !== 'undefined' && window.userinfo) 
+                        || (typeof userinfo !== 'undefined' && userinfo)
+                        || (typeof window.user !== 'undefined' && window.user)
+                        || (typeof user !== 'undefined' && user)
+                        || (typeof window.currentUser !== 'undefined' && window.currentUser)
+                        || (typeof currentUser !== 'undefined' && currentUser);
+                    if (u) {
+                        var sa = u.siteadmin;
+                        if (sa === 0xFFFFFFFF || sa === 4294967295 || sa === -1) return true;
+                        if (typeof sa === 'number' && sa !== 0) return true;
+                        if (sa === true || sa === 1) return true;
                     }
                 } catch (e) {}
                 return false;
+            },
+
+            updateAdminVisibility: function () {
+                var isAdmin = this.isUserAdmin();
+                var settingsBtn = document.getElementById('qts-btn-settings');
+                if (settingsBtn) {
+                    settingsBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+                }
+                var dropdownAdminFooter = document.getElementById('qts-dropdown-admin-footer');
+                if (dropdownAdminFooter) {
+                    dropdownAdminFooter.style.display = isAdmin ? 'block' : 'none';
+                }
             },
 
             detectCurrentOS: function () {
@@ -643,10 +665,14 @@ var quickterminalscriptsPlugin = function (parent) {
                 if (isTerminalVisible) {
                     this.mountToolbar();
                 }
+                this.updateAdminVisibility();
             },
 
             mountToolbar: function () {
-                if (document.getElementById('qts-toolbar-container')) return;
+                if (document.getElementById('qts-toolbar-container')) {
+                    this.updateAdminVisibility();
+                    return;
+                }
 
                 var target = document.getElementById('terminalCustomUiButtons');
                 if (!target) {
@@ -660,8 +686,6 @@ var quickterminalscriptsPlugin = function (parent) {
                 container.id = 'qts-toolbar-container';
                 container.className = 'qts-container';
 
-                var isAdmin = this.isUserAdmin();
-
                 container.innerHTML = [
                     '<div class="qts-combobox" id="qts-combobox">',
                     '  <div class="qts-input-wrap">',
@@ -673,7 +697,7 @@ var quickterminalscriptsPlugin = function (parent) {
                     '  <ul id="qts-dropdown-list" class="qts-dropdown-list" style="display:none;"></ul>',
                     '</div>',
                     '<button type="button" id="qts-btn-action" class="qts-btn qts-btn-action" disabled title="Выберите команду для запуска">Вставить</button>',
-                    isAdmin ? '<button type="button" id="qts-btn-settings" class="qts-btn qts-btn-settings" title="Управление скриптами (Администратор)">⚙️</button>' : ''
+                    '<button type="button" id="qts-btn-settings" class="qts-btn qts-btn-settings" style="display:none;" title="Управление скриптами (Администратор)">⚙️</button>'
                 ].join('');
 
                 if (target.id === 'terminalCustomUiButtons') {
@@ -688,6 +712,7 @@ var quickterminalscriptsPlugin = function (parent) {
                 this.currentOS = this.detectCurrentOS();
                 this.updateFilteredScripts();
                 this.renderDropdown();
+                this.updateAdminVisibility();
             },
 
             bindToolbarEvents: function () {
@@ -800,7 +825,24 @@ var quickterminalscriptsPlugin = function (parent) {
                     );
                 }
 
+                if (this.isUserAdmin()) {
+                    html.push(
+                        '<li class="qts-dropdown-footer">',
+                        '  <button type="button" class="qts-btn-dropdown-admin" id="qts-dropdown-manage-btn">⚙️ Управление скриптами (Администратор)</button>',
+                        '</li>'
+                    );
+                }
+
                 list.innerHTML = html.join('');
+
+                var manageBtn = document.getElementById('qts-dropdown-manage-btn');
+                if (manageBtn) {
+                    manageBtn.addEventListener('click', function (e) {
+                        e.stopPropagation();
+                        self.closeDropdown();
+                        self.openAdminModal();
+                    });
+                }
 
                 var items = list.querySelectorAll('.qts-dropdown-item');
                 for (var j = 0; j < items.length; j++) {

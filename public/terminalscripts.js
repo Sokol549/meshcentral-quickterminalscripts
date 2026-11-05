@@ -59,13 +59,32 @@
         // -------------------------------------------------------------
         isUserAdmin: function () {
             try {
-                if (window.user) {
-                    if (window.user.siteadmin === 0xFFFFFFFF || window.user.siteadmin === -1) return true;
-                    if (typeof window.user.siteadmin === 'number' && (window.user.siteadmin & 1) !== 0) return true;
-                    if (window.user.siteadmin === true || window.user.siteadmin === 1) return true;
+                var u = (typeof window.userinfo !== 'undefined' && window.userinfo) 
+                    || (typeof userinfo !== 'undefined' && userinfo)
+                    || (typeof window.user !== 'undefined' && window.user)
+                    || (typeof user !== 'undefined' && user)
+                    || (typeof window.currentUser !== 'undefined' && window.currentUser)
+                    || (typeof currentUser !== 'undefined' && currentUser);
+                if (u) {
+                    var sa = u.siteadmin;
+                    if (sa === 0xFFFFFFFF || sa === 4294967295 || sa === -1) return true;
+                    if (typeof sa === 'number' && sa !== 0) return true;
+                    if (sa === true || sa === 1) return true;
                 }
             } catch (e) {}
             return false;
+        },
+
+        updateAdminVisibility: function () {
+            var isAdmin = this.isUserAdmin();
+            var settingsBtn = document.getElementById('qts-btn-settings');
+            if (settingsBtn) {
+                settingsBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+            }
+            var dropdownAdminFooter = document.getElementById('qts-dropdown-admin-footer');
+            if (dropdownAdminFooter) {
+                dropdownAdminFooter.style.display = isAdmin ? 'block' : 'none';
+            }
         },
 
         // -------------------------------------------------------------
@@ -243,13 +262,17 @@
             if (isTerminalVisible) {
                 this.mountToolbar();
             }
+            this.updateAdminVisibility();
         },
 
         // -------------------------------------------------------------
         // UI Mounting
         // -------------------------------------------------------------
         mountToolbar: function () {
-            if (document.getElementById('qts-toolbar-container')) return;
+            if (document.getElementById('qts-toolbar-container')) {
+                this.updateAdminVisibility();
+                return;
+            }
 
             // Target mount points in order of preference
             var target = document.getElementById('terminalCustomUiButtons');
@@ -268,8 +291,6 @@
             container.id = 'qts-toolbar-container';
             container.className = 'qts-container';
 
-            var isAdmin = this.isUserAdmin();
-
             container.innerHTML = [
                 '<div class="qts-combobox" id="qts-combobox">',
                 '  <div class="qts-input-wrap">',
@@ -281,7 +302,7 @@
                 '  <ul id="qts-dropdown-list" class="qts-dropdown-list" style="display:none;"></ul>',
                 '</div>',
                 '<button type="button" id="qts-btn-action" class="qts-btn qts-btn-action" disabled title="Выберите команду для запуска">Вставить</button>',
-                isAdmin ? '<button type="button" id="qts-btn-settings" class="qts-btn qts-btn-settings" title="Управление скриптами (Администратор)">⚙️</button>' : ''
+                '<button type="button" id="qts-btn-settings" class="qts-btn qts-btn-settings" style="display:none;" title="Управление скриптами (Администратор)">⚙️</button>'
             ].join('');
 
             // Prepend or append depending on container type
@@ -297,6 +318,7 @@
             this.currentOS = this.detectCurrentOS();
             this.updateFilteredScripts();
             this.renderDropdown();
+            this.updateAdminVisibility();
         },
 
         // -------------------------------------------------------------
@@ -443,7 +465,24 @@
                 );
             }
 
+            if (this.isUserAdmin()) {
+                html.push(
+                    '<li class="qts-dropdown-footer">',
+                    '  <button type="button" class="qts-btn-dropdown-admin" id="qts-dropdown-manage-btn">⚙️ Управление скриптами (Администратор)</button>',
+                    '</li>'
+                );
+            }
+
             list.innerHTML = html.join('');
+
+            var manageBtn = document.getElementById('qts-dropdown-manage-btn');
+            if (manageBtn) {
+                manageBtn.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    self.closeDropdown();
+                    self.openAdminModal();
+                });
+            }
 
             // Click bindings
             var items = list.querySelectorAll('.qts-dropdown-item');
